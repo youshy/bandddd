@@ -57,7 +57,8 @@ Executed task-by-task (TDD → review gate) against the [SP1 plan](./docs/superp
 
 - **Phase 0–1 (partial):** Rust workspace + `band-core` (pure/headless, wasm-clean); `SongClock` trait + `ManualClock`; `band-audio` with a sample-accurate `AudioSongClock`. Godot/gdext, iOS export, and CI are **deferred** (need hardware/GUI) and tracked as restart prompts.
 - **Phase 2 — Chart format + hashing ✅ complete.** Deterministic canonical **binary** chart codec (version byte, fixed field order, LEB128/zig-zag varints), core/envelope split, integer-µs times, and a **total/panic-free** decoder. Content-address = **version-namespaced BLAKE3** — `BLAKE3(FORMAT_VERSION_byte ++ core-bytes)`, lowercase hex, over the hashed core only. **Byte-identical native-vs-WASM is *proven***, not just designed: an executed `wasm-pack test --node` run verifies the same golden content-address under WASM as native.
-- **Next:** Phase 3 — minimal MIDI importer (headless).
+- **Phase 3 — Minimal MIDI importer ✅ complete.** `.mid` → single-tier **believable test charts**: SMF parse with integer tick→µs tempo mapping (`midly`), melodic reduction (pitch-band lanes + chord-merge + sustains) and drum reduction (GM kit → lanes, kick on space), assembled by `import_chart` into a content-addressed `.band`. Feel-target onset times are preserved verbatim from the source MIDI. Three CLI harnesses in `band-cli` (`import`, `hashcheck`, `inspect`); **whole-pipeline determinism proven** — the same `.mid` yields the same 64-hex address across repeated runs. A seeded chart lives at [`godot/assets/test_charts/`](./godot/assets/test_charts).
+- **Next:** Phase 4 — full audio engine (needs real audio/hardware; headless-buildable parts execute here, playtest parts deferred as restart prompts).
 
 ### Dev setup
 
@@ -73,6 +74,18 @@ Requires: **Rust stable** with the `wasm32-unknown-unknown` target (`rustup targ
 
 ```bash
 cd rust && wasm-pack test --node crates/band-core --test hash_determinism
+```
+
+The `band-cli` crate provides the MIDI-import tooling (native-only, no extra system deps — `midly` is fetched by cargo):
+
+```bash
+cd rust
+# import a .mid → content-addressed .band (role flags pick source track indices)
+cargo run -p band-cli --bin import -- in.mid out.band --guitar 0 --drums 1
+cargo run -p band-cli --bin hashcheck -- out.band   # prints the 64-hex content-address
+cargo run -p band-cli --bin inspect   -- out.band   # prints a JSON debug projection (NOT hashed)
+# regenerate the seeded test-chart MIDI fixture from source:
+cargo run -p band-core --example gen_test_groove
 ```
 
 Godot 4 + `gdext`, real audio, and iOS export are needed only for the not-yet-started GUI/hardware phases.
