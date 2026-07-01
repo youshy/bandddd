@@ -282,6 +282,94 @@ pub fn reduce_melodic(track: &MidiTrack, role: InstrumentRole, set_index: u16) -
     DifficultyTier { notes }
 }
 
+/// GM percussion category a drum pitch reduces to. `Kick` contributes to `space`
+/// (no lane bit); the other three each own one fixed lane bit. Pitches outside the
+/// GM ranges below are `None` — ignored (no lane, no space contribution).
+enum DrumCategory {
+    Kick,
+    HiHat,
+    Snare,
+    Tom,
+    Cymbal,
+    None,
+}
+
+/// GM drum-kit pitch → category, per SP1 §2. Lane assignment (fixed, documented here):
+/// hi-hat = lane 0, snare = lane 1, tom = lane 2, cymbal = lane 3. Kick has no lane —
+/// it drives `SpaceAction::Kick` instead.
+fn drum_category(pitch: u8) -> DrumCategory {
+    match pitch {
+        35 | 36 => DrumCategory::Kick,
+        38 | 40 => DrumCategory::Snare,
+        42 | 44 | 46 => DrumCategory::HiHat,
+        41 | 43 | 45 | 47 | 48 | 50 => DrumCategory::Tom,
+        49 | 51 | 52 | 55 | 57 | 59 => DrumCategory::Cymbal,
+        _ => DrumCategory::None,
+    }
+}
+
+/// Lane bit for a non-kick drum category. Kick/None contribute no lane bit.
+fn drum_lane_bit(category: &DrumCategory) -> u8 {
+    match category {
+        DrumCategory::HiHat => 1 << 0,
+        DrumCategory::Snare => 1 << 1,
+        DrumCategory::Tom => 1 << 2,
+        DrumCategory::Cymbal => 1 << 3,
+        DrumCategory::Kick | DrumCategory::None => 0,
+    }
+}
+
+/// Reduce a drum MIDI track to a single-tier chart: fixed GM pitch → lane/space map
+/// (kick → `SpaceAction::Kick`, no lane bit; snare/hi-hat/tom/cymbal → one lane bit
+/// each), merge simultaneous hits (identical `start_us`) via lane-bit OR with
+/// `space = Kick` if any kick is present in the group, else `space = None`. Drums
+/// never sustain (`sustain_len_us` is always 0). Not the SP3 fair translator — a
+/// minimal, deterministic TEST-chart reduction (SP1 §3).
+pub fn reduce_drums(track: &MidiTrack, set_index: u16) -> DifficultyTier {
+    if track.notes.is_empty() {
+        return DifficultyTier { notes: Vec::new() };
+    }
+
+    let mut notes = Vec::new();
+    let mut i = 0;
+    while i < track.notes.len() {
+        let start_us = track.notes[i].start_us;
+        let mut j = i;
+        let mut lanes = 0u8;
+        let mut has_kick = false;
+        // Representative: highest velocity, ties broken by highest pitch (matches
+        // reduce_melodic's rule).
+        let mut rep_pitch = track.notes[i].pitch;
+        let mut rep_velocity = track.notes[i].velocity;
+        while j < track.notes.len() && track.notes[j].start_us == start_us {
+            let note = &track.notes[j];
+            let category = drum_category(note.pitch);
+            if matches!(category, DrumCategory::Kick) {
+                has_kick = true;
+            }
+            lanes |= drum_lane_bit(&category);
+            if note.velocity > rep_velocity
+                || (note.velocity == rep_velocity && note.pitch > rep_pitch)
+            {
+                rep_velocity = note.velocity;
+                rep_pitch = note.pitch;
+            }
+            j += 1;
+        }
+        let space = if has_kick { SpaceAction::Kick } else { SpaceAction::None };
+        notes.push(NoteEvent {
+            song_pos_us: start_us,
+            lanes,
+            space,
+            sustain_len_us: 0,
+            sound: SoundRef { set_index, pitch: rep_pitch, velocity: rep_velocity },
+        });
+        i = j;
+    }
+
+    DifficultyTier { notes }
+}
+
 fn push_note(
     track: &mut MidiTrack,
     start_tick: u64,
@@ -487,6 +575,48 @@ mod tests {
     fn melodic_reduction_of_empty_track_is_empty_and_does_not_panic() {
         let track = MidiTrack { name: None, channel10: false, notes: vec![] };
         let tier = reduce_melodic(&track, InstrumentRole::Vocal, 3);
+        assert_eq!(tier.notes.len(), 0);
+    }
+
+    #[test]
+    fn drum_reduction_maps_kick_to_space() {
+        let track = MidiTrack { name: None, channel10: true, notes: vec![
+            MidiNote { start_us: 0, len_us: 1_000, pitch: 36, velocity: 110 }, // kick
+            MidiNote { start_us: 0, len_us: 1_000, pitch: 38, velocity: 100 }, // snare
+        ] };
+        let tier = reduce_drums(&track, 0);
+        assert_eq!(tier.notes.len(), 1);
+        assert_eq!(tier.notes[0].space, SpaceAction::Kick);
+        assert_ne!(tier.notes[0].lanes, 0); // snare occupies a lane
+        assert_eq!(tier.notes[0].sustain_len_us, 0);
+    }
+
+    #[test]
+    fn drum_reduction_kick_only_has_no_lane_bits() {
+        let track = MidiTrack { name: None, channel10: true, notes: vec![
+            MidiNote { start_us: 0, len_us: 1_000, pitch: 35, velocity: 100 }, // kick
+        ] };
+        let tier = reduce_drums(&track, 0);
+        assert_eq!(tier.notes.len(), 1);
+        assert_eq!(tier.notes[0].space, SpaceAction::Kick);
+        assert_eq!(tier.notes[0].lanes, 0);
+    }
+
+    #[test]
+    fn drum_reduction_ignores_unmapped_pitch_without_panic() {
+        let track = MidiTrack { name: None, channel10: true, notes: vec![
+            MidiNote { start_us: 0, len_us: 1_000, pitch: 1, velocity: 100 }, // unmapped
+        ] };
+        let tier = reduce_drums(&track, 0);
+        assert_eq!(tier.notes.len(), 1);
+        assert_eq!(tier.notes[0].space, SpaceAction::None);
+        assert_eq!(tier.notes[0].lanes, 0);
+    }
+
+    #[test]
+    fn drum_reduction_of_empty_track_is_empty_and_does_not_panic() {
+        let track = MidiTrack { name: None, channel10: true, notes: vec![] };
+        let tier = reduce_drums(&track, 0);
         assert_eq!(tier.notes.len(), 0);
     }
 
