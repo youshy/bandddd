@@ -1,6 +1,7 @@
 //! band-core: pure, headless, cross-target (native + wasm32) game core.
 #![forbid(unsafe_code)]
 
+pub mod chart;
 pub mod clock;
 
 /// Human-readable crate version (distinct from the on-wire chart format version byte).
