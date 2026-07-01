@@ -4,6 +4,7 @@
 pub mod chart;
 pub mod clock;
 pub mod input;
+pub mod judge;
 pub mod midi_import;
 pub mod schedule;
 pub mod tunables;
