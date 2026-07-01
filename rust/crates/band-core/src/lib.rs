@@ -4,6 +4,7 @@
 pub mod chart;
 pub mod clock;
 pub mod midi_import;
+pub mod schedule;
 pub mod tunables;
 
 /// Human-readable crate version (distinct from the on-wire chart format version byte).
