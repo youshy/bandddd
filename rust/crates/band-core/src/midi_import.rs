@@ -3,8 +3,9 @@
 
 use std::collections::HashMap;
 
-use crate::chart::TempoEvent;
+use crate::chart::{DifficultyTier, InstrumentRole, NoteEvent, SoundRef, SpaceAction, TempoEvent};
 use crate::clock::SongPosUs;
+use crate::tunables::SUSTAIN_MIN_US;
 
 #[derive(Debug, PartialEq)]
 pub enum ImportError {
@@ -224,6 +225,63 @@ pub fn parse_smf(bytes: &[u8]) -> Result<ParsedMidi, ImportError> {
     })
 }
 
+/// Reduce a melodic (guitar/bass/vocal) MIDI track to a single-tier chart: pitch-band
+/// the track's own `[min,max]` range into 4 lanes, merge simultaneous notes (identical
+/// `start_us`) into one `NoteEvent` via lane-bit OR, and promote long notes to sustains.
+/// Not the SP3 fair translator — a minimal, deterministic TEST-chart reduction (SP1 §3).
+pub fn reduce_melodic(track: &MidiTrack, role: InstrumentRole, set_index: u16) -> DifficultyTier {
+    if track.notes.is_empty() {
+        return DifficultyTier { notes: Vec::new() };
+    }
+
+    let min = track.notes.iter().map(|n| n.pitch).min().unwrap();
+    let max = track.notes.iter().map(|n| n.pitch).max().unwrap();
+    let range = (max - min) as u32 + 1;
+    let lane_of = |pitch: u8| -> u8 { (((pitch - min) as u32 * 4) / range).min(3) as u8 };
+
+    let space = match role {
+        InstrumentRole::Vocal => SpaceAction::Trigger,
+        _ => SpaceAction::Strum,
+    };
+
+    let mut notes = Vec::new();
+    let mut i = 0;
+    while i < track.notes.len() {
+        let start_us = track.notes[i].start_us;
+        let mut j = i;
+        let mut lanes = 0u8;
+        let mut max_len_us: SongPosUs = 0;
+        // Representative: highest velocity, ties broken by highest pitch.
+        let mut rep_pitch = track.notes[i].pitch;
+        let mut rep_velocity = track.notes[i].velocity;
+        while j < track.notes.len() && track.notes[j].start_us == start_us {
+            let note = &track.notes[j];
+            lanes |= 1 << lane_of(note.pitch);
+            if note.len_us > max_len_us {
+                max_len_us = note.len_us;
+            }
+            if note.velocity > rep_velocity
+                || (note.velocity == rep_velocity && note.pitch > rep_pitch)
+            {
+                rep_velocity = note.velocity;
+                rep_pitch = note.pitch;
+            }
+            j += 1;
+        }
+        let sustain_len_us = if max_len_us >= SUSTAIN_MIN_US { max_len_us } else { 0 };
+        notes.push(NoteEvent {
+            song_pos_us: start_us,
+            lanes,
+            space,
+            sustain_len_us,
+            sound: SoundRef { set_index, pitch: rep_pitch, velocity: rep_velocity },
+        });
+        i = j;
+    }
+
+    DifficultyTier { notes }
+}
+
 fn push_note(
     track: &mut MidiTrack,
     start_tick: u64,
@@ -409,6 +467,27 @@ mod tests {
         let parsed = parse_smf(&buf).expect("out-of-range time sig should not error");
         assert_eq!(parsed.tempo_map.len(), 1);
         assert_eq!(parsed.tempo_map[0].denominator, 4);
+    }
+
+    #[test]
+    fn melodic_reduction_bands_pitch_and_merges_chords() {
+        let track = MidiTrack { name: None, channel10: false, notes: vec![
+            MidiNote { start_us: 0, len_us: 10_000, pitch: 40, velocity: 100 },   // low → lane 0
+            MidiNote { start_us: 0, len_us: 10_000, pitch: 76, velocity: 100 },   // high → lane 3
+            MidiNote { start_us: 500_000, len_us: 400_000, pitch: 58, velocity: 90 }, // long → sustain
+        ] };
+        let tier = reduce_melodic(&track, InstrumentRole::Guitar, 0);
+        assert_eq!(tier.notes.len(), 2);
+        assert_eq!(tier.notes[0].lanes, 0b1001);
+        assert_eq!(tier.notes[0].space, SpaceAction::Strum);
+        assert!(tier.notes[1].sustain_len_us > 0);
+    }
+
+    #[test]
+    fn melodic_reduction_of_empty_track_is_empty_and_does_not_panic() {
+        let track = MidiTrack { name: None, channel10: false, notes: vec![] };
+        let tier = reduce_melodic(&track, InstrumentRole::Vocal, 3);
+        assert_eq!(tier.notes.len(), 0);
     }
 
     #[test]
