@@ -3,7 +3,10 @@
 
 use std::collections::HashMap;
 
-use crate::chart::{DifficultyTier, InstrumentRole, NoteEvent, SoundRef, SpaceAction, TempoEvent};
+use crate::chart::{
+    Chart, ChartCore, DifficultyTier, Envelope, InstrumentRole, InstrumentSetRef, InstrumentTrack,
+    NoteEvent, SoundRef, SpaceAction, TempoEvent, NUM_ROLES,
+};
 use crate::clock::SongPosUs;
 use crate::tunables::SUSTAIN_MIN_US;
 
@@ -35,6 +38,20 @@ pub struct ParsedMidi {
     pub tempo_map: Vec<TempoEvent>,
     pub tracks: Vec<MidiTrack>,
 }
+
+/// Which parsed-MIDI track index (if any) feeds each chart role. Indices are into
+/// `ParsedMidi.tracks`. A role left `None` gets one empty tier in the resulting chart.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct RoleMapping {
+    pub guitar: Option<usize>,
+    pub bass: Option<usize>,
+    pub drums: Option<usize>,
+    pub vocal: Option<usize>,
+}
+
+/// Fixed instrument-set id shipped per role, in role order (SP1 §3 test content).
+const INSTRUMENT_SET_IDS: [&str; NUM_ROLES] =
+    ["guitar_clean_v1", "bass_finger_v1", "drums_rock_v1", "vocal_pad_v1"];
 
 const DEFAULT_MICROS_PER_BEAT: u32 = 500_000;
 const DEFAULT_NUMERATOR: u8 = 4;
@@ -368,6 +385,93 @@ pub fn reduce_drums(track: &MidiTrack, set_index: u16) -> DifficultyTier {
     }
 
     DifficultyTier { notes }
+}
+
+/// Orchestrate a full import: parse the SMF, reduce the mapped tracks per role, and
+/// assemble a one-tier `Chart` (SP1 §3 test-chart importer). `instrument_set_refs` is
+/// always exactly `NUM_ROLES` entries in role order, so `set_index == role index`
+/// deterministically. Unmapped roles get a single empty tier (the model requires
+/// `InstrumentTrack.tiers` to have >=1 entry). Returns `ImportError::NoTracks` if no
+/// role is mapped at all, and `ImportError::Unsupported` if a mapped index is out of
+/// range for the parsed track list — never panics/indexes out of bounds.
+pub fn import_chart(smf: &[u8], mapping: RoleMapping) -> Result<Chart, ImportError> {
+    if mapping.guitar.is_none()
+        && mapping.bass.is_none()
+        && mapping.drums.is_none()
+        && mapping.vocal.is_none()
+    {
+        return Err(ImportError::NoTracks);
+    }
+
+    let parsed = parse_smf(smf)?;
+
+    let track_for = |idx: Option<usize>| -> Result<Option<&MidiTrack>, ImportError> {
+        match idx {
+            None => Ok(None),
+            Some(i) => parsed
+                .tracks
+                .get(i)
+                .map(Some)
+                .ok_or(ImportError::Unsupported("track index out of range")),
+        }
+    };
+
+    let guitar_track = track_for(mapping.guitar)?;
+    let bass_track = track_for(mapping.bass)?;
+    let drums_track = track_for(mapping.drums)?;
+    let vocal_track = track_for(mapping.vocal)?;
+
+    let mut duration_us: SongPosUs = 0;
+    let mut note_end = |tier: &DifficultyTier| {
+        for n in &tier.notes {
+            let end = n.song_pos_us + n.sustain_len_us;
+            if end > duration_us {
+                duration_us = end;
+            }
+        }
+    };
+
+    let guitar_tier = match guitar_track {
+        Some(t) => reduce_melodic(t, InstrumentRole::Guitar, InstrumentRole::Guitar as u16),
+        None => DifficultyTier::default(),
+    };
+    note_end(&guitar_tier);
+    let bass_tier = match bass_track {
+        Some(t) => reduce_melodic(t, InstrumentRole::Bass, InstrumentRole::Bass as u16),
+        None => DifficultyTier::default(),
+    };
+    note_end(&bass_tier);
+    let drums_tier = match drums_track {
+        Some(t) => reduce_drums(t, InstrumentRole::Drums as u16),
+        None => DifficultyTier::default(),
+    };
+    note_end(&drums_tier);
+    let vocal_tier = match vocal_track {
+        Some(t) => reduce_melodic(t, InstrumentRole::Vocal, InstrumentRole::Vocal as u16),
+        None => DifficultyTier::default(),
+    };
+    note_end(&vocal_tier);
+
+    let instrument_set_refs = INSTRUMENT_SET_IDS
+        .iter()
+        .map(|id| InstrumentSetRef { id: (*id).to_string() })
+        .collect();
+
+    let core = ChartCore {
+        duration_us,
+        tempo_map: parsed.tempo_map,
+        instrument_set_refs,
+        tracks: [
+            InstrumentTrack { tiers: vec![guitar_tier] },
+            InstrumentTrack { tiers: vec![bass_tier] },
+            InstrumentTrack { tiers: vec![drums_tier] },
+            InstrumentTrack { tiers: vec![vocal_tier] },
+        ],
+        lyrics: Vec::new(),
+        groove_sections: Vec::new(),
+    };
+
+    Ok(Chart { core, envelope: Envelope::default() })
 }
 
 fn push_note(

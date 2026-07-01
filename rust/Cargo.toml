@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/band-core", "crates/band-audio"]
+members = ["crates/band-core", "crates/band-audio", "crates/band-cli"]
 
 [workspace.package]
 edition = "2021"

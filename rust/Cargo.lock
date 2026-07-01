@@ -73,6 +73,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "band-cli"
+version = "0.1.0"
+dependencies = [
+ "band-core",
+]
+
+[[package]]
 name = "band-core"
 version = "0.1.0"
 dependencies = [
