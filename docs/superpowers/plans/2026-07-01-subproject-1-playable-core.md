@@ -18,7 +18,7 @@ Every task's requirements implicitly include this section. Values are copied ver
 - **All note/feel-target/tempo times are INTEGER µs-grade (`i64`), never floats.** Required for deterministic hashing and deterministic transforms, and for byte-identical hashes native-vs-WASM.
 - **Core/envelope split:** the hashed **canonical playable core** = notes/lanes/space/sustains/feel-targets + tempo-beat map + lyrics + instrument-set refs + baked difficulty tiers. **Only this is hashed → the content-address.** The **unhashed envelope** = title/artist/author/version/labels/tier-names.
 - **Chart format must be capable of baked difficulty tiers** (parallel note-sets per instrument). SP1's minimal importer produces exactly **one tier**; the multi-tier generator is SP3 — do not build it here.
-- **Hash algorithm = BLAKE3** over the canonical core bytes; content-address = lowercase hex. (This is SP1's pinned choice for SP3's "hashing algorithm" open question; it is versioned by the format version byte.)
+- **Hash algorithm = BLAKE3** over the canonical core bytes; content-address = lowercase hex. (This is SP1's pinned choice for SP3's "hashing algorithm" open question; it is versioned by the format version byte.) **IMPLEMENTED (Phase 2):** the content-address is `BLAKE3(FORMAT_VERSION_byte ++ encode_core(core))` — the format version byte is hashed *before* the core bytes so structurally-identical cores under different `FORMAT_VERSION`s never collide. This is byte-identical native and under WASM — **proven** by an executed `wasm-pack test --node` run against a frozen golden vector (Task 2.5), not merely asserted.
 - **Unified mechanic:** 4 fixed lanes (zero musical semantics) + space, one reading model for all four instruments (guitar/bass/drums/vocal), single instrument at a time. Sustains scored on **two axes: onset timing + hold length.** Bindings reassignable per input device (keyboard/gamepad/touch/real MIDI). Default touch = 5 large zones.
 - **Song-clock:** the audio device's sample-accurate playhead is master; song-position is derived from frames-played, never wall-clock/frame-time. Built as the same abstraction SP2 will anchor to a server clock.
 - **Audio:** Rust-owned audio thread (`cpal` + `rustysynth` sampler); sample sets ship with the game; each instrument sounded by *that performer's actual hit events*; unmanned instruments auto-perform at chart-ideal; **miss = audible hole** (mute that part for the note; optional subtle clank — playtest). Stylized melodic vocal voice (vowel-pad "aah" lead) + on-screen lyrics; no singing synthesis.
@@ -1254,11 +1254,17 @@ blake3 = { version = "1", default-features = false }
 `rust/crates/band-core/src/chart/hash.rs`:
 ```rust
 //! Content-addressing: BLAKE3 over the canonical core bytes ONLY (envelope excluded).
+//! The FORMAT_VERSION byte is hashed BEFORE the core bytes so the address is
+//! version-namespaced (identical cores under different formats never collide).
 
-use super::{codec::encode_core, ChartCore};
+use super::{codec::encode_core, ChartCore, FORMAT_VERSION};
 
 pub fn content_address_bytes(core: &ChartCore) -> [u8; 32] {
-    *blake3::hash(&encode_core(core)).as_bytes()
+    // As-built (Phase 2): version-namespaced — hash FORMAT_VERSION then encode_core(core).
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(&[FORMAT_VERSION]);
+    hasher.update(&encode_core(core));
+    *hasher.finalize().as_bytes()
 }
 
 pub fn content_address(core: &ChartCore) -> String {
@@ -1353,8 +1359,9 @@ fn golden_core() -> ChartCore {
     }
 }
 
-// Paste the value printed by `content_address(&golden_core())` here:
-const GOLDEN: &str = "PASTE_64_HEX_FROM_STEP_1";
+// The value printed by `content_address(&golden_core())` — over the
+// version-namespaced hash BLAKE3(FORMAT_VERSION ++ encode_core(core)):
+const GOLDEN: &str = "6989f2c9c0a25d0023d12db12a9bab6dfafcbf899aa73b9296bbb131bc434a8b";
 
 #[test]
 fn golden_address_matches() {
@@ -1406,6 +1413,8 @@ git commit -m "test(core): cross-target native-vs-WASM hash determinism (golden 
 ```
 
 **REVIEW CHECKPOINT 2** — The chart format is deterministic, panic-free to decode, hashed over the core only (envelope excluded), and produces byte-identical content-addresses native and under WASM. This contract is now frozen; downstream tasks depend on it. Any later field addition bumps `FORMAT_VERSION`.
+
+> **✅ REACHED (2026-07-01).** All of Phase 2 (Tasks 2.1–2.5) implemented via TDD and reviewed clean on branch `sp1-playable-core` (commits `ee17dd8..2ea60a9`). The content-address is version-namespaced BLAKE3 (`BLAKE3(FORMAT_VERSION ++ encode_core(core))`); byte-identical native-vs-WASM was **proven by an executed `wasm-pack test --node` run** (not just a compile check) against the golden vector `6989f2c9c0a25d0023d12db12a9bab6dfafcbf899aa73b9296bbb131bc434a8b`. Full workspace suite green; `band-core` builds for wasm32. CI (`.github/workflows/ci.yml`) is deferred with Phase 0 (needs iOS/hardware); the wasm-determinism CI step is parked in `rust/crates/band-core/tests/README-wasm-determinism.md` until it lands.
 
 ---
 

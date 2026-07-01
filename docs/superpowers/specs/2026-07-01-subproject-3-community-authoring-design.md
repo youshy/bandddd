@@ -68,9 +68,9 @@ The translator is an **authoring-time tool** — it emits a resolved chart (§1-
 
 ## 3. Canonical serialization + deterministic hashing (Decision — locked; closes SP1's open question)
 
-**(a) Canonical binary encoding — not JSON.** JSON invites nondeterminism (key ordering, whitespace, unicode normalization, float printing). The canonical form is a **binary encoding** with a version byte, fixed field order, length-prefixed sections, and varint/fixed-width integers. Deterministic by construction; smaller (helps the kilobyte P2P/QR transfer). A human-readable JSON *debug projection* may exist in the editor but is **never** what gets hashed.
+**(a) Canonical binary encoding — not JSON.** JSON invites nondeterminism (key ordering, whitespace, unicode normalization, float printing). The canonical form is a **binary encoding** with a version byte, fixed field order, length-prefixed sections, and varint/fixed-width integers. Deterministic by construction; smaller (helps the kilobyte P2P/QR transfer). A human-readable JSON *debug projection* may exist in the editor but is **never** what gets hashed. **Hashing algorithm pinned (SP1 Phase 2): BLAKE3**, and the address is **version-namespaced** — `BLAKE3(FORMAT_VERSION_byte ++ canonical-core-bytes)`, lowercase hex — so identical cores under different format versions never collide.
 
-**(b) Integer times, never floats.** All note times (feel-targets) are quantized to **integer units** (µs-grade — sub-ms, inaudible), as are the tempo/beat map subdivisions. This makes both the **hash** and every **transform** (re-groove, difficulty) reproducible across platforms and compilers — and, critically, **byte-identical between the native game and the WASM web app** (§4). Floats would have made a WASM authoring tool unsafe.
+**(b) Integer times, never floats.** All note times (feel-targets) are quantized to **integer units** (µs-grade — sub-ms, inaudible), as are the tempo/beat map subdivisions. This makes both the **hash** and every **transform** (re-groove, difficulty) reproducible across platforms and compilers — and, critically, **byte-identical between the native game and the WASM web app** (§4). Floats would have made a WASM authoring tool unsafe. **This is no longer just a design claim: SP1 Phase 2 proves it** — a frozen golden content-address verifies identically native and under WASM via an executed `wasm-pack test --node` run.
 
 **(c) Core / envelope split (the "stable across edits vs new address" answer).**
 - **Canonical playable core** = notes/lanes/space/sustains/feel-targets + tempo-beat map + lyrics + instrument-set refs + baked difficulty tiers (§6). **This — and only this — is hashed → the content-address.**
@@ -268,7 +268,7 @@ So: **share = compose(SP2 Invite&Join, §4 handoff, §8 index); import = §4 rec
 ## 14. Open questions to resolve during implementation
 
 - Exact **envelope/effort weights** per instrument role and per tier, and the salience-ranking heuristics — playtest/feel-tuned; A/B'd via PostHog feature flags.
-- Exact **binary layout** (section order, varint scheme, time quantum) and the **hashing algorithm** choice — must be pinned once and versioned.
+- ~~Exact **binary layout** (section order, varint scheme, time quantum) and the **hashing algorithm** choice — must be pinned once and versioned.~~ **PINNED (SP1 Phase 2, 2026-07-01):** LEB128 unsigned / zig-zag signed varints, µs-grade integer time quantum, fixed field order with length-prefixed sections and a leading `FORMAT_VERSION` byte; **hashing algorithm = BLAKE3**, address = `BLAKE3(FORMAT_VERSION_byte ++ core-bytes)` (version-namespaced, lowercase hex). Proven byte-identical native-vs-WASM against a frozen golden vector.
 - **Track/channel auto-guess** heuristics quality (how often authors must remap).
 - **QR capacity ceiling** and the animated/chunked-QR encoding (framing, error correction, dedup of frames).
 - **Signature scheme** (curve, key storage per platform, keychain/secure-enclave integration) and keypair backup UX.
