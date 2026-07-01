@@ -179,4 +179,78 @@ mod tests {
             .feed(InputEvent { song_pos_us: 1_080_001, action: InputAction::LaneDown(0) })
             .is_none());
     }
+
+    /// Three same-lane notes are all within `hit_us` of one tap, but at
+    /// different distances, and the notes are deliberately stored
+    /// out-of-order (nearest note is neither index 0 nor the last index).
+    /// This rules out both a "pick the first eligible note" bug and a
+    /// "pick the last eligible note" bug: either would select a note at
+    /// 1_060_000 or 1_100_000 (offset 40_000 / 80_000) instead of the true
+    /// nearest note at 1_000_000 (offset 20_000), which fails the
+    /// `song_pos` / `signed_offset_us` assertions below.
+    #[test]
+    fn nearest_note_wins_among_two_in_window() {
+        let notes = vec![
+            note_at(1_060_000, 0b0001, SpaceAction::None, 0), // index 0: offset 40_000
+            note_at(1_000_000, 0b0001, SpaceAction::None, 0), // index 1: nearest, offset 20_000
+            note_at(1_100_000, 0b0001, SpaceAction::None, 0), // index 2: offset 80_000 (hit_us boundary)
+        ];
+        let mut j = Judge::new(&notes, TimingWindows::default());
+        let r = j
+            .feed(InputEvent { song_pos_us: 1_020_000, action: InputAction::LaneDown(0) })
+            .unwrap();
+        assert_eq!(r.song_pos, 1_000_000);
+        assert_eq!(r.signed_offset_us, 20_000);
+        assert_eq!(r.grade, Grade::Perfect);
+
+        // Only the nearest note was consumed; the other two remain and
+        // finalize as Misses.
+        let misses = j.finalize();
+        assert_eq!(misses.len(), 2);
+        let miss_positions: std::collections::BTreeSet<_> =
+            misses.iter().map(|m| m.song_pos).collect();
+        assert_eq!(
+            miss_positions,
+            std::collections::BTreeSet::from([1_060_000, 1_100_000])
+        );
+        assert!(misses.iter().all(|m| m.grade == Grade::Miss));
+    }
+
+    /// Once a note is consumed by a matching tap, an identical follow-up tap
+    /// must not re-match it (each note is consumable at most once).
+    #[test]
+    fn consumed_note_not_rematched() {
+        let notes = vec![note_at(1_000_000, 0b0001, SpaceAction::None, 0)];
+        let mut j = Judge::new(&notes, TimingWindows::default());
+
+        let first = j
+            .feed(InputEvent { song_pos_us: 1_000_000, action: InputAction::LaneDown(0) })
+            .unwrap();
+        assert_eq!(first.grade, Grade::Perfect);
+
+        let second = j.feed(InputEvent { song_pos_us: 1_000_000, action: InputAction::LaneDown(0) });
+        assert!(second.is_none());
+
+        assert!(j.finalize().is_empty());
+    }
+
+    /// Two same-lane notes are equidistant from the tap (both offset
+    /// 20_000). Ties break on earliest `song_pos_us`. The notes are stored
+    /// with the later note first in the slice, so a buggy implementation
+    /// that keeps whichever note it saw first on a tie (rather than
+    /// explicitly preferring the earliest `song_pos_us`) would wrongly
+    /// select the 1_040_000 note and fail this assertion.
+    #[test]
+    fn tie_break_prefers_earliest_song_pos() {
+        let notes = vec![
+            note_at(1_040_000, 0b0001, SpaceAction::None, 0), // index 0: later note, seen first
+            note_at(1_000_000, 0b0001, SpaceAction::None, 0), // index 1: earlier note
+        ];
+        let mut j = Judge::new(&notes, TimingWindows::default());
+        let r = j
+            .feed(InputEvent { song_pos_us: 1_020_000, action: InputAction::LaneDown(0) })
+            .unwrap();
+        assert_eq!(r.song_pos, 1_000_000);
+        assert_eq!(r.signed_offset_us, 20_000);
+    }
 }
