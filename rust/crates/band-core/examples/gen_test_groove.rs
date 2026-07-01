@@ -1,8 +1,8 @@
-//! THROWAWAY generator (Task 3.4 step 5): programmatically author a small,
+//! Test-fixture generator (Task 3.4 step 5): programmatically authors a small,
 //! believable 4-bar riff+bass+drums MIDI fixture so we have real test-chart
 //! content without needing a royalty-free .mid file on hand. Not part of the
-//! importer pipeline — run once to produce
-//! `godot/assets/test_charts/src/test_groove.mid`, then delete this file.
+//! importer pipeline; kept in-tree so the committed
+//! `godot/assets/test_charts/src/test_groove.mid` is reproducible from source.
 //!
 //! Run: `cargo run -p band-core --example gen_test_groove`
 
