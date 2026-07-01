@@ -1,0 +1,15 @@
+[package]
+name = "band-core"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[dependencies]
+blake3 = { version = "1", default-features = false }
+midly = { version = "0.5", default-features = false, features = ["alloc"] }
+
+[dev-dependencies]
+wasm-bindgen-test = "0.3"
+
+[lib]
+crate-type = ["rlib"]

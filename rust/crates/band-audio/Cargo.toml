@@ -1,0 +1,11 @@
+[package]
+name = "band-audio"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[dependencies]
+band-core = { path = "../band-core" }
+cpal = "0.15"
+rustysynth = "1"
+rtrb = "0.3"

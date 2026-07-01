@@ -51,6 +51,8 @@
 
 Everything reads this. Kept **tiny** (kilobytes — no audio; sample sets ship with the game) and **content-addressed** (hash of canonical serialization → the id used for dedupe/sharing later).
 
+> **Implemented (Phase 2, 2026-07-01):** canonical **binary** codec + **version-namespaced BLAKE3** content-address — `BLAKE3(FORMAT_VERSION_byte ++ core-bytes)`, hashed core only (envelope excluded), integer-µs, panic-free decoder — **proven byte-identical native-vs-WASM** (executed `wasm-pack test --node` vs. a frozen golden vector). See §11 and the SP1 plan.
+
 **Groove is not a separate layer — groove *is* where the notes sit.** Note times are the *feel-targets*: each note is placed exactly where it should be felt (swing/push/lay-back already baked in), **not** quantized to a grid. Re-grooving a song = a transform on note times.
 
 Conceptual structure:
@@ -156,7 +158,7 @@ Two components, anchored on the **song's pocket** (shared reference), with the r
 
 ## 11. Open questions to resolve during implementation
 
-- Exact canonical serialization format for the chart (binary vs JSON) and hashing scheme — must be deterministic for later content-addressing.
+- ~~Exact canonical serialization format for the chart (binary vs JSON) and hashing scheme — must be deterministic for later content-addressing.~~ **RESOLVED (Phase 2, 2026-07-01):** deterministic canonical **binary** (version byte, fixed field order, length-prefixed sections, LEB128/zig-zag varints; never JSON), integer-µs times, panic-free/bounds-checked decoder. Content-address = **version-namespaced BLAKE3** — `BLAKE3(FORMAT_VERSION_byte ++ canonical-core-bytes)`, lowercase hex, over the hashed core only (envelope excluded). **Proven byte-identical native and under WASM** by an executed `wasm-pack test --node` run against a frozen golden vector. See the SP1 plan Phase 2 / Review Checkpoint 2.
 - Sampler choice (`rustysynth`/soundfont vs a purpose-built sampler) and how the Rust audio thread cooperates with Godot's audio server on iOS specifically.
 - Final timing-window and pocket-zone numbers (playtest-driven).
 - Exact windowed-groove math (std-dev vs mean-absolute-deviation; window length; how bonus scales) — needs feel tuning.
