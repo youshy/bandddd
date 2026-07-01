@@ -1,5 +1,21 @@
 # bandddd
 
+**bandddd** — *Your band. In your pocket. Right now.*
+
+It's four friends, four instruments — guitar, bass, drums, or vocals — playing a real song *together*, live, each on the **phone that's already in your hand.** No console, no gear, no lessons. Just tap the screen. If you can tap along to a song, you can play it.
+
+Here's the magic: it's not about hitting notes like a robot. It's about **locking in as a band.** When the four of you find the groove together — riding just behind the beat, breathing as one — the song *comes alive* and your score climbs. Drift apart and it falls apart with you. You don't win by being perfect. You win by being *tight*.
+
+**For the party:** someone taps a link, and boom — they're in the band, shredding AC/DC in ten seconds flat. AirDrop it, text it, scan a QR code. If it needs a tutorial, we built it wrong. Every phone even *buzzes in time* so you feel the beat in your hands.
+
+**For the musicians:** it's real music. Every note you play actually sounds — miss one and you hear the hole. Feel the pocket, bend the timing, re-flavor any song ("let's do this one with a huge swing"). It rewards *feel* — the thing real players live for.
+
+**Bring any song. Your library, your rules.** Start a room, drop the link in the group chat, and the whole band's playing together in seconds — from four different couches.
+
+> *Four humans, four instruments, one performance — like you're all in the room with the band.*
+
+---
+
 *Working title.* A multiplayer, MIDI-native rhythm game where **four remote players each perform one instrument** — guitar, bass, drums, or vocal — on **4 buttons + space**, and the game rewards **groove** (collective, locked-in feel) over mechanical grid-perfection.
 
 > **Four humans, four uniquely-played instruments, one performance.** "I'm in the room with the band."
@@ -56,10 +72,12 @@ The whole point of the game.
 - Audience **joining** (Supabase-subscribe only, read-mostly, scales cheaply)
 - Anti-cheat: server-authoritative aggregation + plausibility checks (full replay deferred)
 
-### 3. Community Authoring & Distribution — *not yet designed*
-- Full MIDI→chart **translation + authoring tool** (fair, tunable, re-groovable per instrument)
-- Viral content-addressed distribution (rooms *are* discovery)
-- Optional metadata index
+### 3. Community Authoring & Distribution — *spec written*
+- Full MIDI→chart **translation** (effort-weighted playability envelope + per-instrument salience; fair, tunable, re-groovable per instrument) + **authoring tool** (in-game editor + open-access WASM web app + in-game light-remix, over one Rust core); **client-side MIDI import** with track→role mapping and **author-entered lyrics** for the vocal part
+- Canonical **binary serialization + deterministic hashing** (integer-µs times; core/envelope split — playable core is the content-address, title/author/version are not)
+- **Re-grooving** (grid-relative swing/lean, per instrument) and **baked difficulty tiers** (per-player, one hash) as deterministic transforms
+- Viral content-addressed distribution (rooms *are* discovery): **local library** + publish-as-social-gesture; near-zero-friction web→game handoff (fragment-link / QR / file); **we host nothing**
+- Opt-in, **title-free metadata index**; self-sovereign local-keypair identity; **no login, no accounts, no user tracking**; anonymous PostHog analytics
 
 ### Cross-cutting (grown from the start, not standalone phases)
 - **Backend & meta:** Supabase schema (auth, users, scores, streaks, leaderboards), anti-cheat / score validation, settings (bindings, calibration, audio, graphics)
