@@ -1,9 +1,14 @@
 //! Content-addressing: BLAKE3 over the canonical core bytes ONLY (envelope excluded).
 
-use super::{codec::encode_core, ChartCore};
+use super::{codec::encode_core, ChartCore, FORMAT_VERSION};
 
 pub fn content_address_bytes(core: &ChartCore) -> [u8; 32] {
-    *blake3::hash(&encode_core(core)).as_bytes()
+    // The format version byte namespaces the address, so structurally-identical
+    // cores under different FORMAT_VERSIONs never collide (pinned: BLAKE3 versioned by format byte).
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(&[FORMAT_VERSION]);
+    hasher.update(&encode_core(core));
+    *hasher.finalize().as_bytes()
 }
 
 pub fn content_address(core: &ChartCore) -> String {
@@ -30,12 +35,12 @@ mod tests {
 
     #[test]
     fn envelope_does_not_affect_address() {
-        // Two charts, identical core, different envelope → SAME address (SP3 §3c).
+        // Two charts, identical core, different envelope → SAME address (envelope never hashed).
         let core = sample_core();
-        let a = content_address(&core);
-        let _c1 = Chart { core: core.clone(), envelope: Envelope { title: "A".into(), ..Default::default() } };
-        let _c2 = Chart { core: core.clone(), envelope: Envelope { title: "B".into(), ..Default::default() } };
-        assert_eq!(a, content_address(&core)); // envelope never enters the hash
+        let c1 = Chart { core: core.clone(), envelope: Envelope { title: "A".into(), ..Default::default() } };
+        let c2 = Chart { core: core.clone(), envelope: Envelope { title: "B".into(), ..Default::default() } };
+        assert_eq!(content_address(&c1.core), content_address(&c2.core));
+        assert_eq!(content_address(&c1.core), content_address(&core));
     }
 
     #[test]
