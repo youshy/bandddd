@@ -24,6 +24,7 @@ Nobody improvises — every player performs a **known score (the MIDI)**, so the
 
 - [Platform Architecture & Vision](./docs/superpowers/specs/2026-07-01-band-platform-architecture-design.md) — the north star.
 - [Sub-project 1 — Playable Core](./docs/superpowers/specs/2026-07-01-subproject-1-playable-core-design.md) — first buildable slice.
+- [Sub-project 2 — Band / Multiplayer](./docs/superpowers/specs/2026-07-01-subproject-2-band-multiplayer-design.md) — the whole point of the game.
 
 ---
 
@@ -43,16 +44,17 @@ One player, one instrument, one device, fully playable. De-risks ~90% of the har
 - Role-aware views: performer vs **audience** (lyrics + clock, no scoring)
 - Mobile haptics (per-action, calibrated to audio)
 
-### 2. Band / Multiplayer — *not yet designed*
+### 2. Band / Multiplayer — *spec written*
 The whole point of the game.
-- Session model: rooms (create, public / private, join-by-link)
-- **Invite & Join:** OS share sheet (AirDrop / Messages) + QR code + short human code
-- Server-synced session clock; server is session authority (host leaving doesn't kill the song)
-- P2P mesh (WebRTC): content-addressed chart transfer + peer-assisted relay + timing-event fan-out
-- Supabase as signaling + room metadata + presence broker (**never carries chart bytes**)
-- Bandmate **presence layer** — seeing + hearing the whole band
-- **Band scoring:** collective groove + coherence, band streak, band points
-- Audience **joining** (read-mostly, scales cheaply)
+- Session model: rooms (create, public / private, join-by-link); slots auto-perform when empty; join / leave / swap mid-song at musical boundaries; server-authoritative host migration (owner leaving doesn't kill the song)
+- **Invite & Join:** OS share sheet (AirDrop / Messages) + QR code + short human code; universal links + install funnel
+- Server-synced session clock (NTP-style anchor; SP1's local playhead free-runs, slew-only mid-song)
+- **Hybrid transport:** WebRTC mesh for low-latency timing events (feel) + Supabase for authoritative windowed summaries (truth)
+- P2P mesh (WebRTC): content-addressed chart transfer + peer-assisted relay; Supabase = signaling + metadata + presence (**never carries chart bytes**); graceful audience fallback if a chart is unobtainable
+- Bandmate **presence layer** — seeing + hearing the whole band (jitter buffer / ~1-bar look-ahead)
+- **Band scoring:** collective groove + **coherence** (four pockets clustering, pocket-guarded), band streak (collective-collapse, tunable), band points — outrank individual
+- Audience **joining** (Supabase-subscribe only, read-mostly, scales cheaply)
+- Anti-cheat: server-authoritative aggregation + plausibility checks (full replay deferred)
 
 ### 3. Community Authoring & Distribution — *not yet designed*
 - Full MIDI→chart **translation + authoring tool** (fair, tunable, re-groovable per instrument)
