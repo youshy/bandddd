@@ -162,9 +162,34 @@ Two components, anchored on the **song's pocket** (shared reference), with the r
 - Exact windowed-groove math (std-dev vs mean-absolute-deviation; window length; how bonus scales) — needs feel tuning.
 - Miss feedback: silent drop vs subtle clank (playtest).
 - Minimal-importer scope: which MIDI conventions it understands to produce believable test charts.
+- **Pocket-meter visual tuning:** exact mapping of lean→position and spread→marker-sharpness; how strong the ambient warm/cold feel layer should be before it distracts (playtest).
 
 ---
 
-## 12. Definition of done (this sub-project)
+## 12. Minimal playable UI (for playtesting — functional, not polished)
 
-A single player, on at least one desktop target **and iOS**, can: load a test chart, calibrate their device, play one instrument through a full song with the note highway + audio + haptics, hear their part sounded from their own hits (with misses leaving audible holes) over an auto-performed backing, and receive an individual score that **demonstrably rewards a tight pocket over both robotic-perfect and sloppy play** — with all per-note/windowed metrics emitted in band-ready form.
+**Purpose:** the core's *correctness* is validated headless (Rust unit/integration tests + small CLI/debug harnesses over charts → assert hit-windows, scores, hashes, round-trips). But the core's *fun* cannot be unit-tested — "if this isn't fun, nothing downstream matters." So SP1 ships a **minimal, programmer-art, functionally-complete** playable surface, iterated in playtest. This is explicitly **not** the polished visual-design language (that's a post-fun pass); it is the smallest surface that lets us *feel* the game.
+
+**Governing constraint:** the *play* surface must pass the Inebriated-User Test even while the dev chrome around it does not.
+
+**Screens (the minimum to feel the game):**
+1. **Test-chart picker** (dev-facing, bare list) — choose a local test chart + instrument (guitar/bass/drums/vocal) + difficulty tier, then play. No polish.
+2. **Calibration** (§6) — tap-to-the-beat; shows measured audio/input/haptic offsets; first-run gated, re-runnable from settings.
+3. **Play screen / note highway (the heart)** — 4 lanes + a space zone; notes scroll to a hit line; bar lines from the tempo map; sustains shown as tails (length check); per-instrument space semantics shown (strum bar / kick zone / sustain). Touch = 5 large zones (§2 default); desktop = keys; gamepad / real MIDI mapped via the input abstraction.
+4. **Real-time feedback** — per-hit judgment flash (Perfect / Good / Hit / Miss, §7) with an early/late indicator; streak counter; miss = visual gap paired with the audible hole (§5).
+5. **Results** — final score + **groove breakdown** (mean lean, tightness/spread, groove bonus, in-pocket %, streak) — the band-ready metrics (§8) made visible so we can *prove* a tight pocket beats both robotic-perfect and sloppy play.
+6. **Audience view (light)** — the same highway scene minus input/scoring, lyrics + clock (§9); built here so SP2 only has to route it.
+
+**The pocket meter (the one novel, essential element).** Every rhythm game shows note-accuracy; almost none show *groove*. If the UI only shows Perfect/Good/Miss, the groove-over-grid reward is invisible and therefore untestable. Two-part treatment:
+- **Dev/playtest instrument (primary):** a horizontal **"pocket lane"** — a marker for the player's rolling **mean lean** (ahead ← → behind) inside a marked **pocket zone** (§8 guardrail), where the marker's **sharpness vs. smear encodes tightness/spread** (locked-in = crisp dot, sloppy = wide blur). Glanceable, tunable, drunk-proof.
+- **Ambient feel layer:** the highway subtly **warms/glows when tight-and-in-pocket** and goes cold/desaturated when the player scatters or drifts out of the pocket — feelable with zero reading (Inebriated-User Test). Precise numbers live on the Results screen only.
+
+**Explicitly deferred:** the full app UX / visual-design language, menus/settings chrome beyond the above, and any theming — a dedicated pass *after* the core proves fun (so we design against a mechanic we've actually felt).
+
+**Engine split:** Godot owns these scenes/rendering/input; the Rust core supplies scoring/timing/audio and the per-note + windowed metrics the feedback and pocket meter render. The UI reads the core's outputs; it never computes groove itself.
+
+---
+
+## 13. Definition of done (this sub-project)
+
+A single player, on at least one desktop target **and iOS**, can: load a test chart, calibrate their device, play one instrument through a full song **via the minimal playable UI (§12)** with the note highway + audio + haptics, hear their part sounded from their own hits (with misses leaving audible holes) over an auto-performed backing, **see their groove made visible via the pocket meter**, and receive an individual score that **demonstrably rewards a tight pocket over both robotic-perfect and sloppy play** — with all per-note/windowed metrics emitted in band-ready form. Core correctness is additionally covered by **headless Rust tests + debug harnesses** independent of the UI.
