@@ -93,6 +93,9 @@ pub fn parse_smf(bytes: &[u8]) -> Result<ParsedMidi, ImportError> {
         midly::Timing::Metrical(ppq) => ppq.as_int(),
         midly::Timing::Timecode(..) => return Err(ImportError::Unsupported("SMPTE timing")),
     };
+    if ppq == 0 {
+        return Err(ImportError::Parse("zero PPQ".into()));
+    }
 
     // Pass 1: collect every tempo/time-signature meta event across all tracks, keyed by
     // absolute tick. SMF tempo events typically live in track 0 but can appear anywhere.
@@ -107,7 +110,11 @@ pub fn parse_smf(bytes: &[u8]) -> Result<ParsedMidi, ImportError> {
                         raw_meta.push((tick, RawMeta::Tempo(mpb.as_int())));
                     }
                     midly::MetaMessage::TimeSignature(numerator, denom_pow, ..) => {
-                        raw_meta.push((tick, RawMeta::TimeSig(numerator, 1u8 << denom_pow)));
+                        let denominator = 1u32
+                            .checked_shl(denom_pow as u32)
+                            .and_then(|d| u8::try_from(d).ok())
+                            .unwrap_or(DEFAULT_DENOMINATOR);
+                        raw_meta.push((tick, RawMeta::TimeSig(numerator, denominator)));
                     }
                     _ => {}
                 }
@@ -217,7 +224,6 @@ pub fn parse_smf(bytes: &[u8]) -> Result<ParsedMidi, ImportError> {
     })
 }
 
-#[allow(clippy::too_many_arguments)]
 fn push_note(
     track: &mut MidiTrack,
     start_tick: u64,
@@ -346,6 +352,63 @@ mod tests {
 
         let err = parse_smf(&buf).expect_err("smpte timing should be rejected");
         assert_eq!(err, ImportError::Unsupported("SMPTE timing"));
+    }
+
+    #[test]
+    fn zero_ppq_is_rejected_without_panic() {
+        let events: Vec<TrackEvent> = vec![
+            TrackEvent {
+                delta: u28::new(0),
+                kind: TrackEventKind::Midi {
+                    channel: u4::new(0),
+                    message: MidiMessage::NoteOn { key: u7::new(60), vel: u7::new(100) },
+                },
+            },
+            TrackEvent {
+                delta: u28::new(240),
+                kind: TrackEventKind::Midi {
+                    channel: u4::new(0),
+                    message: MidiMessage::NoteOff { key: u7::new(60), vel: u7::new(0) },
+                },
+            },
+            TrackEvent {
+                delta: u28::new(0),
+                kind: TrackEventKind::Meta(MetaMessage::EndOfTrack),
+            },
+        ];
+        let smf = Smf {
+            header: Header::new(Format::SingleTrack, Timing::Metrical(u15::new(0))),
+            tracks: vec![events],
+        };
+        let mut buf = Vec::new();
+        smf.write(&mut buf).expect("write fixture smf");
+
+        let err = parse_smf(&buf).expect_err("zero PPQ should be rejected, not panic");
+        assert!(matches!(err, ImportError::Parse(_)));
+    }
+
+    #[test]
+    fn out_of_range_time_signature_denominator_falls_back_to_four() {
+        let events: Vec<TrackEvent> = vec![
+            TrackEvent {
+                delta: u28::new(0),
+                kind: TrackEventKind::Meta(MetaMessage::TimeSignature(4, 200, 24, 8)),
+            },
+            TrackEvent {
+                delta: u28::new(0),
+                kind: TrackEventKind::Meta(MetaMessage::EndOfTrack),
+            },
+        ];
+        let smf = Smf {
+            header: Header::new(Format::SingleTrack, Timing::Metrical(u15::new(480))),
+            tracks: vec![events],
+        };
+        let mut buf = Vec::new();
+        smf.write(&mut buf).expect("write fixture smf");
+
+        let parsed = parse_smf(&buf).expect("out-of-range time sig should not error");
+        assert_eq!(parsed.tempo_map.len(), 1);
+        assert_eq!(parsed.tempo_map[0].denominator, 4);
     }
 
     #[test]
