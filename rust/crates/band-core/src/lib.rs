@@ -3,6 +3,7 @@
 
 pub mod chart;
 pub mod clock;
+pub mod midi_import;
 
 /// Human-readable crate version (distinct from the on-wire chart format version byte).
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
